@@ -36,8 +36,8 @@ using Attributes = std::vector<std::pair<Uint32, Uint32>>;      // (tag, its val
 struct Gathered
 {
     std::wstring path;
-    std::string charset, patient, patientName, birthDate, study, studyDate, studyTime, studyDescription;
-    std::string series, seriesNumber, seriesDate, seriesTime, seriesDescription, modality;
+    std::string charset, patient, patientName, birthDate, sex, age, study, studyDate, studyTime, studyDescription;
+    std::string series, seriesNumber, seriesDate, seriesTime, seriesDescription, modality, acquisitionDate;
     std::string instance, trigger, time, orientationText, positionText;
     double orientation[6] = {}, position[3] = {}, z = 0;
     bool oriented = false, placed = false, hasZ = false;
@@ -48,21 +48,41 @@ struct Gathered
     Attributes attributes;
 };
 
-// Who the patient of a file is, beyond its PatientID: its birth date (its digits) and the words of its
+// Who the patient of a file is, beyond its PatientID: its sex, its year of birth and the words of its
 // name, in capitals, without accents and in alphabetical order ("Garcia^Juan", "JUAN GARCIA" and "garcia,
-// juan" are the same name, with an accent on the i too). Some exports put the same placeholder in the PatientID of everyone (9999), and files
-// without one all have the same empty one: these tell their people apart.
+// juan" are the same name, with an accent on the i too). Some exports put the same placeholder in the
+// PatientID of everyone (9999), and files without one all have the same empty one: these tell their
+// people apart. Placeholders are left out: a birth date after the study or before 1900, a name such as
+// ANONYMOUS or PATIENT (the same as DICOMstack, whose .Person and PersonHash these are).
 struct Person
 {
-    std::string birth;
+    std::string sex;                                // M, F or O ("": not said)
+    std::string birth;                              // the birth date (its digits), when it is a real one
+    int ageYear = 0;                                // the year of the study less PatientAge (0: not known)
+    int year = 0;                                   // of birth: of the birth date, or else from the age (0: not known)
+    bool yearOfBirthDate = false;                   // the year from PatientBirthDate (not from PatientAge)
+    std::string rawName, charset;                   // the name as read, when it is one (not a placeholder)
     std::wstring name;                              // its words, in order, one space between them
     std::vector<std::wstring> words;
-    bool Empty() const { return birth.empty() && name.empty(); }
+    bool Empty() const { return sex.empty() && !year && name.empty(); }
+    int Known() const { return !sex.empty() + (year != 0) + !name.empty(); }
 };
 
-Person PersonOf(const std::string& name, const std::string& charset, const std::string& birth);
+Person PersonOf(const Gathered& g);
+
+void InheritInStudy(std::vector<Person*>& study);
+
+// The people of files of one PatientID (in their order), each value a file does not say taken from the
+// other files of its study when they agree on it
+std::vector<Person> PeopleOf(const std::vector<Gathered>& files, const std::vector<int>& group);
 
 bool SamePerson(const Person& a, const Person& b);
+
+// 'Pid<PatientID>-<sex>-<year of birth>', '_' for what is not known (never the name): 'Pid12345-F-1970'
+std::wstring PersonText(const std::wstring& patientId, const Person& p);
+
+// The hash of a person (of its PatientID, the people apart): that of DICOMstack
+std::wstring PersonHash(const Person& p);
 
 enum class Found { Other, Dicom, Directory };
 
@@ -99,7 +119,8 @@ struct GatherNode
     Attributes common;                              // the attributes all its files share
     std::vector<std::wstring> problems, flags;      // what the checks found in it: in full, and in a word or two
     std::vector<std::wstring> notes;                // what they found that is not a problem by itself
-    std::wstring person;                            // a patient whose PatientID other people share: a hash of who it is
+    std::wstring person;                            // a patient: a hash of who it is
+    std::wstring who;                               // a patient: who it is, 'Pid12345-F-1970' (PersonText)
     int sharing = 1;                                // a patient: how many people have its PatientID
 };
 

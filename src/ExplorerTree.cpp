@@ -47,29 +47,18 @@ void DicomExplorer::Build()
     for (size_t i = 0; i < all.size(); i++) fileState[all[i]].rank = static_cast<int>(i);
     const int top = Add(Level::All, -1, all);
     // The patients by their PatientID; the people that share one (9999, none), apart by who they are
-    struct Patient { std::vector<int> files; std::wstring person; int sharing = 1; };
+    struct Patient { std::vector<int> files; std::wstring person, who; int sharing = 1; };
     std::vector<Patient> patients;
     for (auto& pg : GroupBy(all, [&](int f) { return files[f].patient; }))
     {
         // Each file with the first person it can be (the most complete ones first: they make the people)
-        std::vector<Person> who(pg.size());
+        const std::vector<Person> who = PeopleOf(files, pg);
         std::vector<size_t> order(pg.size());
-        std::unordered_map<std::string, size_t> seen;         // (name and birth date as read: their person once)
-        for (size_t i = 0; i < pg.size(); i++)
-        {
-            const Gathered& g = files[pg[i]];
-            const std::string raw = g.patientName + '\x01' + g.birthDate + '\x01' + g.charset;
-            auto it = seen.find(raw);
-            who[i] = it != seen.end() ? who[it->second] : PersonOf(g.patientName, g.charset, g.birthDate);
-            if (it == seen.end()) seen.emplace(raw, i);
-            order[i] = i;
-        }
-        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-            return (!who[a].birth.empty()) + (!who[a].name.empty()) > (!who[b].birth.empty()) + (!who[b].name.empty());
-        });
+        std::iota(order.begin(), order.end(), 0);
+        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return who[a].Known() > who[b].Known(); });
         std::vector<Person> people;
         std::vector<std::vector<int>> theirs;
-        std::vector<int> nobody;                // neither a name nor a birth date: cannot be told
+        std::vector<int> nobody;                // neither sex, nor year of birth, nor name: cannot be told
         for (size_t i : order)
         {
             if (who[i].Empty()) { nobody.push_back(pg[i]); continue; }
@@ -78,18 +67,14 @@ void DicomExplorer::Build()
             if (k == people.size()) { people.push_back(who[i]); theirs.emplace_back(); }
             theirs[k].push_back(pg[i]);
         }
-        if (people.size() <= 1)
-        {
-            patients.push_back({ pg, L"", 1 });
-            continue;
-        }
-        if (!nobody.empty()) { people.push_back(Person()); theirs.push_back(nobody); }
+        // (those that cannot be told: with the one person, or apart when there are more)
+        if (!nobody.empty() && people.size() == 1) theirs[0].insert(theirs[0].end(), nobody.begin(), nobody.end());
+        else if (!nobody.empty()) { people.push_back(Person()); theirs.push_back(nobody); }
+        const std::wstring id = Widen(files[pg[0]].patient, files[pg[0]].charset);
         for (size_t k = 0; k < theirs.size(); k++)
         {
             std::sort(theirs[k].begin(), theirs[k].end(), [&](int a, int b) { return fileState[a].rank < fileState[b].rank; });
-            std::string key = people[k].birth + "|";
-            for (wchar_t c : people[k].name) key += static_cast<char>(c < 128 ? c : '?');
-            patients.push_back({ theirs[k], people[k].Empty() ? L"no name or birth date" : Hash6(key), static_cast<int>(theirs.size()) });
+            patients.push_back({ theirs[k], PersonHash(people[k]), PersonText(id, people[k]), static_cast<int>(theirs.size()) });
         }
     }
     std::sort(patients.begin(), patients.end(), [&](const Patient& a, const Patient& b) {
@@ -101,6 +86,7 @@ void DicomExplorer::Build()
         const std::vector<int>& pg = pt.files;
         const int p = Add(Level::Patient, top, pg);
         nodes[p].person = pt.person;
+        nodes[p].who = pt.who;
         nodes[p].sharing = pt.sharing;
         auto studies = GroupBy(pg, [&](int f) { return files[f].study; });
         std::sort(studies.begin(), studies.end(), [&](const auto& a, const auto& b) {
@@ -214,7 +200,7 @@ std::wstring DicomExplorer::Plain(int i) const
         return L"All";
     case Level::Patient:
         add((g.patient.empty() ? L"Patient (no ID)" : L"Patient " + Widen(g.patient, g.charset)) +
-            (n.person.empty() ? L"" : L" \x00B7 [" + n.person + L"]"));
+            L" \x00B7 " + n.who + L" [" + n.person + L"]");
         add(L"(" + std::to_wstring(n.children.size()) + (n.children.size() == 1 ? L" study, " : L" studies, ") + files(count) + L")");
         return s;
     case Level::Study:

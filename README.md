@@ -182,19 +182,25 @@ file that needs nothing else (download it and open it in a browser).
     (`PerFrameFunctionalGroupsSequence`, or the shared ones), so they make orientations and positions
     like separate files, and the checks, thumbnails and NIfTI see them as slices
     (`CT Series 3 AX 512 x 512 x 2 (2 images (1 file))`). A file is counted once.
+  - **Who each patient is**: `Patient 12345 · Pid12345-F-1970 [Ab3xYz]`, its PatientID, sex and year
+    of birth (`_` for what is not known; never the name, also shown with *Hide patient identity*) and a
+    short hash of who it is, the same `.Person` and `PersonHash` as DICOMstack's. The year is that of the
+    birth date, or else the year of the study less the age. Placeholders do not count: a birth date
+    after the study or before 1900, a name such as `ANONYMOUS`, `PATIENT`, `NN` or only initials. What a
+    file does not say it takes from the other files of its study, when all of those that say it agree
+    (captures and reports added to a study copy the patient but not its age).
   - **People that share a PatientID** are told apart: some exports put the same placeholder in the
     PatientID of everyone (`9999`), and files without one all share the empty one. Within a PatientID,
-    files whose birth date or name disagree are other people. The name is taken as its words, in
-    capitals, without accents and in any order (`Garcia^Juan` and `JUAN GARCIA` are one), and these do
-    not tell people apart: a missing birth date or name, a name with fewer words than the other (a second
-    name left out), an initial (`R` for `RAVI`), a word written another way when the birth date is the
-    same, or a birth date apart only in its year when a word of the name agrees. Only then the patient
-    splits, each one with a short hash of who it is, never the name: `Patient 9999 · [7a7e54]` and
-    `⚠ the same ID, 2 people`; otherwise the tree is as before. Over 610,000 files, 10 PatientIDs split
-    so: the empty one (13 people), placeholders (`9999`, `1`, `Anonimo`, `VISIT 1`, `SSSSSS`), truncated
-    research IDs, and two real IDs whose files carry the same name with unrelated birth dates (left
-    apart: nothing tells which is right). `tools\Test-DicomExplorer.ps1` lists the PatientIDs it splits
-    and what tells their people apart (never the names or dates).
+    files whose sex, year of birth (one year apart when it comes from the age) or name disagree are
+    other people. The name is taken as its words, in capitals, without accents and in any order
+    (`Garcia^Juan` and `JUAN GARCIA` are one), and these do not tell people apart: a missing value, a
+    name with fewer words than the other (a second name left out), an initial (`R` for `RAVI`), a word
+    written another way when the birth date is the same, or a birth date apart only in its year when a
+    word of the name agrees. Then the patient splits, `⚠ the same ID, 2 people`; files that say nothing
+    are `no name or birth date` beside them. Over 650,000 files, 12 PatientIDs split so: the empty one,
+    placeholders (`9999`, `1`, `Anonimo`...), truncated research IDs, and real IDs whose files carry
+    other people. `tools\Test-DicomExplorer.ps1` lists every patient as who it is, the PatientIDs it
+    splits and what tells their people apart (never the names).
   - *Compact* (on by default, remembered): an orientation alone in its series, and positions of one
     image each (or alone in their orientation), are left out of the tree: a stack shows its images
     under the series, a cine of several slices its positions. Turning it on or off keeps the tree as open

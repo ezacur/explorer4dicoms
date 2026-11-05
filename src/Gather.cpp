@@ -18,11 +18,39 @@ static void SetAttribute(Attributes& a, Uint32 tag, Uint32 id)
     else a.insert(it, { tag, id });
 }
 
-Person PersonOf(const std::string& name, const std::string& charset, const std::string& birth)
+// A date (YYYYMMDD) that is one: its digits, or ""
+static std::string DateDigits(const std::string& text)
 {
-    Person p;
-    for (char c : birth) if (c >= '0' && c <= '9') p.birth += c;
-    const std::wstring w = Widen(name, charset, "\\=^");           // (a name: PN)
+    std::string d;
+    for (char c : text) if (c >= '0' && c <= '9') d += c;
+    if (d.size() != 8) return "";
+    const int y = atoi(d.substr(0, 4).c_str()), m = atoi(d.substr(4, 2).c_str()), day = atoi(d.substr(6, 2).c_str());
+    static const int days[] = { 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    const bool leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    if (m < 1 || m > 12 || day < 1 || day > (m == 2 && !leap ? 28 : days[m - 1])) return "";
+    return d;
+}
+
+// The year of birth: that of the birth date, or the one from the age
+static void SetYear(Person& p)
+{
+    p.yearOfBirthDate = !p.birth.empty();
+    p.year = p.yearOfBirthDate ? atoi(p.birth.substr(0, 4).c_str()) : p.ageYear;
+}
+
+// The words of a name (PN), none if a placeholder
+static void SetName(Person& p, const std::string& raw, const std::string& charset)
+{
+    p.rawName = raw;
+    p.charset = charset;
+    p.name.clear();
+    p.words.clear();
+    // Without a character set, a byte beyond ASCII is not a letter (DICOMstack's readers make it U+FFFD)
+    std::string ascii = raw;
+    const size_t c0 = charset.find_first_not_of(' ');
+    if (c0 == std::string::npos || charset.compare(c0, 8, "ISO_IR 6") == 0 && charset.find_first_not_of(' ', c0 + 8) == std::string::npos)
+        for (char& c : ascii) if (static_cast<unsigned char>(c) >= 0x80) c = ' ';
+    const std::wstring w = Widen(ascii, charset, "\\=^");
     // Decomposed, the accents are marks of their own (not letters), and go
     std::wstring d = w;
     const int n = NormalizeString(NormalizationD, w.c_str(), static_cast<int>(w.size()), nullptr, 0);
@@ -34,8 +62,13 @@ Person PersonOf(const std::string& name, const std::string& charset, const std::
     }
     // Its words (what is not a letter separates them), in alphabetical order: "JUAN GARCIA" is "GARCIA^JUAN"
     std::wstring word;
+    auto mark = [](wchar_t c) {
+        return (c >= 0x0300 && c <= 0x036F) || (c >= 0x1AB0 && c <= 0x1AFF) || (c >= 0x1DC0 && c <= 0x1DFF) ||
+               (c >= 0x20D0 && c <= 0x20FF) || (c >= 0xFE20 && c <= 0xFE2F);
+    };
     for (wchar_t c : d + L" ")
     {
+        if (mark(c)) continue;
         if (IsCharAlphaW(c)) { word += c; continue; }
         if (word.empty()) continue;
         CharUpperBuffW(&word[0], static_cast<DWORD>(word.size()));
@@ -45,22 +78,106 @@ Person PersonOf(const std::string& name, const std::string& charset, const std::
     std::sort(p.words.begin(), p.words.end());
     p.words.erase(std::unique(p.words.begin(), p.words.end()), p.words.end());
     for (const auto& w2 : p.words) p.name += (p.name.empty() ? L"" : L" ") + w2;
+    // (a placeholder, no name: a word such as ANONYMOUS or PATIENT, or initials only)
+    bool filler = true;
+    for (const auto& x : p.words) if (x.size() > 1) filler = false;
+    for (const auto& x : p.words)
+        if (x.compare(0, 4, L"ANON") == 0 || x == L"UNKNOWN" || x == L"DESCONOCIDO" || x == L"DESCONOCIDA" || x == L"PATIENT" ||
+            x == L"PACIENTE" || x == L"NONAME" || x == L"NN") filler = true;
+    if (filler) { p.name.clear(); p.words.clear(); p.rawName.clear(); }
+}
+
+Person PersonOf(const Gathered& g)
+{
+    Person p;
+    if (g.sex == "M" || g.sex == "F" || g.sex == "O") p.sex = g.sex;
+    // The date of the study: StudyDate, or SeriesDate, or AcquisitionDate
+    std::string study = DateDigits(g.studyDate);
+    if (study.empty()) study = DateDigits(g.seriesDate);
+    if (study.empty()) study = DateDigits(g.acquisitionDate);
+    // The birth date, unless a placeholder (after the study, before 1900)
+    const std::string birth = DateDigits(g.birthDate);
+    if (!birth.empty() && birth >= "19000101" && (study.empty() || birth <= study)) p.birth = birth;
+    // The year of the study less the age, in whole years ('006M' is 0)
+    if (!study.empty() && g.age.size() >= 2)
+    {
+        const char unit = static_cast<char>(toupper(static_cast<unsigned char>(g.age.back())));
+        const std::string n = g.age.substr(0, g.age.size() - 1);
+        if (!n.empty() && std::all_of(n.begin(), n.end(), [](char c) { return c >= '0' && c <= '9'; }) && unit && strchr("YMWD", unit))
+        {
+            const long v = atol(n.c_str());
+            const long years = unit == 'Y' ? v : unit == 'M' ? v / 12 : unit == 'W' ? v * 7 / 365 : v / 365;
+            p.ageYear = atoi(study.substr(0, 4).c_str()) - static_cast<int>(years);
+        }
+    }
+    SetYear(p);
+    SetName(p, g.patientName, g.charset);
     return p;
 }
 
-// The same person, as far as they tell: what both have agrees. A missing birth date or name does not
-// tell them apart, nor a name with fewer words than the other one (a second name, or surname, left out),
-// nor an initial for a word ("R" for "RAVI"). With the same birth date in both, a word in common is enough
-// (a name written two ways); and with only the year of the birth date apart, a word in common too (a
-// mistake in the year, or an anonymizer that moves it)
+// What some files of a study say and others do not, given to those: each value (sex, birth date, year
+// from the age, name as read) when all the files that have it agree. Objects that another program adds
+// to a study (a capture, a report) copy the patient but not its age
+void InheritInStudy(std::vector<Person*>& study)
+{
+    // (each value apart: present in some, the same in all of those)
+    auto each = [&](auto has, auto same, auto copy) {
+        const Person* one = nullptr;
+        for (const Person* p : study)
+        {
+            if (!has(*p)) continue;
+            if (!one) one = p;
+            else if (!same(*p, *one)) return;
+        }
+        if (one) for (Person* p : study) if (!has(*p)) copy(*p, *one);
+    };
+    each([](const Person& p) { return !p.sex.empty(); }, [](const Person& a, const Person& b) { return a.sex == b.sex; },
+         [](Person& p, const Person& o) { p.sex = o.sex; });
+    each([](const Person& p) { return !p.birth.empty(); }, [](const Person& a, const Person& b) { return a.birth == b.birth; },
+         [](Person& p, const Person& o) { p.birth = o.birth; });
+    each([](const Person& p) { return p.ageYear != 0; }, [](const Person& a, const Person& b) { return a.ageYear == b.ageYear; },
+         [](Person& p, const Person& o) { p.ageYear = o.ageYear; });
+    each([](const Person& p) { return !p.rawName.empty(); }, [](const Person& a, const Person& b) { return a.rawName == b.rawName; },
+         [](Person& p, const Person& o) { SetName(p, o.rawName, o.charset); });
+    for (Person* p : study) SetYear(*p);
+}
+
+std::vector<Person> PeopleOf(const std::vector<Gathered>& files, const std::vector<int>& group)
+{
+    std::vector<Person> who(group.size());
+    std::unordered_map<std::string, size_t> seen;             // (who it is as read: their person once)
+    std::map<std::string, std::vector<Person*>> studies;
+    for (size_t i = 0; i < group.size(); i++)
+    {
+        const Gathered& g = files[group[i]];
+        const std::string raw = g.patientName + '\x01' + g.birthDate + '\x01' + g.charset + '\x01' + g.sex + '\x01' + g.age + '\x01' +
+                                g.studyDate + '\x01' + g.seriesDate + '\x01' + g.acquisitionDate;
+        auto it = seen.find(raw);
+        who[i] = it != seen.end() ? who[it->second] : PersonOf(g);
+        if (it == seen.end()) seen.emplace(raw, i);
+        // (its study: the UID without spaces or nulls on either side)
+        const size_t a = g.study.find_first_not_of(std::string(" \0", 2)), b = g.study.find_last_not_of(std::string(" \0", 2));
+        if (a != std::string::npos) studies[g.study.substr(a, b - a + 1)].push_back(&who[i]);
+    }
+    for (auto& [uid, study] : studies) if (study.size() > 1) InheritInStudy(study);
+    return who;
+}
+
+// The same person, as far as they tell: what both have agrees. The sex must be the same, and a year
+// from the age at most one apart from the other one (the age goes up between studies). A missing value
+// does not tell them apart, nor a name with fewer words than the other one (a second name, or surname,
+// left out), nor an initial for a word ("R" for "RAVI"). With the same birth date in both, a word in
+// common is enough (a name written two ways); and with only the year of the birth date apart, a word in
+// common too (a mistake in the year, or an anonymizer that moves it)
 bool SamePerson(const Person& a, const Person& b)
 {
     auto common = [&]() {
         for (const auto& w : a.words) if (std::binary_search(b.words.begin(), b.words.end(), w)) return true;
         return false;
     };
-    if (!a.birth.empty() && !b.birth.empty() && a.birth != b.birth)
-        return a.birth.size() == 8 && b.birth.size() == 8 && a.birth.compare(4, 4, b.birth, 4, 4) == 0 && common();
+    if (!a.sex.empty() && !b.sex.empty() && a.sex != b.sex) return false;
+    if (a.year && b.year && !(a.yearOfBirthDate && b.yearOfBirthDate) && abs(a.year - b.year) > 1) return false;
+    if (!a.birth.empty() && !b.birth.empty() && a.birth != b.birth) return a.birth.compare(4, 4, b.birth, 4, 4) == 0 && common();
     if (a.words.empty() || b.words.empty()) return true;
     if (!a.birth.empty() && a.birth == b.birth)
         for (const auto& w : a.words)
@@ -81,6 +198,22 @@ bool SamePerson(const Person& a, const Person& b)
         used[k] = true;
     }
     return true;
+}
+
+std::wstring PersonText(const std::wstring& patientId, const Person& p)
+{
+    return L"Pid" + (patientId.empty() ? L"_" : patientId) + L"-" + (p.sex.empty() ? L"_" : Widen(p.sex)) + L"-" +
+           (p.year ? std::to_wstring(p.year) : L"_");
+}
+
+// The hash of 'sex|birth|name', the birth date its 8 digits or 'y' and the year from the age, what is not
+// ASCII '_': 'F|19700101|DOE JANE', 'F|y1970|' (DICOMstack's PersonHash). Nobody: what it is, not a hash
+std::wstring PersonHash(const Person& p)
+{
+    if (p.Empty()) return L"no name or birth date";
+    std::string key = p.sex + "|" + (p.yearOfBirthDate ? p.birth : p.year ? "y" + std::to_string(p.year) : "") + "|";
+    for (wchar_t c : p.name) key += static_cast<char>(c < 128 ? c : '_');
+    return Hash6(key);
 }
 
 // A file, if it is DICOM (a DICOMDIR is not one of the files): its header up to the pixels, by DCMTK.
@@ -111,8 +244,12 @@ static Found GatherFile(const std::wstring& path, long long bytes, Gathered& g, 
     g.bytes = bytes;
     g.charset = get(DCM_SpecificCharacterSet);
     g.patient = get(DCM_PatientID);
+    g.patient.erase(0, g.patient.find_first_not_of(' '));     // (and the spaces before it: ' 123' is '123')
     g.patientName = get(DCM_PatientName);           // (only to tell apart people that share a PatientID)
     g.birthDate = get(DCM_PatientBirthDate);
+    g.sex = get(DCM_PatientSex);
+    g.age = get(DCM_PatientAge);
+    g.acquisitionDate = get(DCM_AcquisitionDate);
     g.study = get(DCM_StudyInstanceUID);
     g.studyDate = get(DCM_StudyDate);
     g.studyTime = get(DCM_StudyTime);
@@ -220,6 +357,7 @@ static Found GatherFile(const std::wstring& path, long long bytes, Gathered& g, 
 
 void Gather(Gathering* g)
 {
+    InitDcmtk();                                    // (what DCMTK reads, as everywhere: UN as its VR...)
     const ULONGLONG start = GetTickCount64();
     struct Item { std::wstring path; long long bytes; };
     std::vector<Item> items;

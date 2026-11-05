@@ -275,7 +275,7 @@ void DicomExplorer::Check()
             // (first who it is: the problems of its series after)
             if (node.level == Level::Patient && node.sharing > 1)
                 Problem(i, L"the same ID, " + std::to_wstring(node.sharing) + L" people",
-                        L"Its PatientID is that of " + std::to_wstring(node.sharing) + L" people (other names or birth dates in the files): shown apart. " +
+                        L"Its PatientID is that of " + std::to_wstring(node.sharing) + L" people (another sex, year of birth or name in the files): shown apart. " +
                         L"An export that puts the same placeholder in every PatientID (9999), or files without one");
             if (k) node.flags.push_back(std::to_wstring(k) + L" series with problems");
         }

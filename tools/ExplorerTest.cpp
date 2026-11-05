@@ -137,8 +137,48 @@ struct ExplorerTest
                 for (const auto& x : k.examples) Say(L"            e.g. %s\n", x.c_str());
             }
         }
-        // The PatientIDs of several people: what tells them apart (never the names or dates themselves).
-        // Only the name apart, with the same birth date, may be one person written two ways
+        // Every patient as who it is (its .Person and PersonHash, as DICOMstack's: never the name), each file
+        // as the tree takes it (with what its study gives it)
+        std::unordered_map<std::string, std::vector<int>> filesOfId;
+        for (size_t f = 0; f < e.data->files.size(); f++) filesOfId[e.data->files[f].patient].push_back(static_cast<int>(f));
+        std::vector<Person> personOf(e.data->files.size());
+        for (const auto& [id, fs] : filesOfId)
+        {
+            std::vector<Person> people = PeopleOf(e.data->files, fs);
+            for (size_t k = 0; k < fs.size(); k++) personOf[fs[k]] = std::move(people[k]);
+        }
+        for (size_t i = 0; i < e.nodes.size(); i++)
+            if (e.nodes[i].level == Level::Patient)
+            {
+                // (and where: the folder of the first level under the one tested, and how many files)
+                const std::wstring& path = e.data->files[e.nodes[i].files[0]].path;
+                const size_t from = folder.size() + (folder.back() == L'\\' ? 0 : 1), to = path.find(L'\\', from);
+                // (its representative: the most complete file, the first in the tree among them - their turn in
+                // the PatientID goes by both: what it knows, of sex, year and name, and its rank)
+                int known = -1, rank = 0;
+                bool named = false;
+                for (int f : e.nodes[i].files)
+                {
+                    const Person& p = personOf[f];
+                    const int r = e.fileState[f].rank;
+                    if (p.Known() > known || (p.Known() == known && r < rank)) { known = p.Known(); rank = r; named = !p.name.empty(); }
+                }
+                Say(L"   person %s [%s]  %zu files in %s  (known %d%s, rank %d)\n", e.nodes[i].who.c_str(), e.nodes[i].person.c_str(),
+                    e.FilesOf(static_cast<int>(i)), to == std::wstring::npos ? L"." : path.substr(from, to - from).c_str(), known,
+                    named ? L" named" : L"", rank);
+                // (the files of one, set in E4D_PERSON: what each one says, never the name)
+                wchar_t which[64] = {};
+                if (GetEnvironmentVariableW(L"E4D_PERSON", which, 64) && e.nodes[i].person == which)
+                    for (int f : e.nodes[i].files)
+                    {
+                        const Gathered& g = e.data->files[f];
+                        const Person& p = personOf[f];
+                        Say(L"      %s known %d%s%s, rank %d, %s\n", PersonText(L"", p).c_str(), p.Known(), p.name.empty() ? L"" : L" named",
+                            p.yearOfBirthDate ? L" (birth date)" : p.year ? L" (age)" : L"", e.fileState[f].rank, g.path.substr(from).c_str());
+                    }
+            }
+        // The PatientIDs of several people: what tells them apart (never the names themselves).
+        // Only the name apart may be one person written two ways
         std::map<std::string, std::vector<int>> byId;
         for (size_t i = 0; i < e.nodes.size(); i++)
             if (e.nodes[i].level == Level::Patient && e.nodes[i].sharing > 1) byId[e.data->files[e.nodes[i].files[0]].patient].push_back(static_cast<int>(i));
@@ -148,20 +188,20 @@ struct ExplorerTest
             std::wstring hashes;
             for (int p : ps)
             {
-                const Gathered& g = e.data->files[e.nodes[p].files[0]];
-                people.push_back(PersonOf(g.patientName, g.charset, g.birthDate));
+                people.push_back(personOf[e.nodes[p].files[0]]);
                 hashes += L" [" + e.nodes[p].person + L"]";
             }
-            bool birth = false, name = false;
+            bool sex = false, birth = false, name = false;
             for (size_t a = 0; a < people.size(); a++)
                 for (size_t b = a + 1; b < people.size(); b++)
                 {
-                    if (!people[a].birth.empty() && !people[b].birth.empty() && people[a].birth != people[b].birth) birth = true;
+                    if (!people[a].sex.empty() && !people[b].sex.empty() && people[a].sex != people[b].sex) sex = true;
+                    if (people[a].year && people[b].year && people[a].year != people[b].year) birth = true;
                     if (!people[a].name.empty() && !people[b].name.empty() && people[a].name != people[b].name) name = true;
                 }
             // (a name only: how many words each one has, and how many they share)
             std::wstring words;
-            if (name && !birth)
+            if (name && !birth && !sex)
                 for (size_t a = 0; a + 1 < people.size(); a++)
                 {
                     std::vector<std::wstring> both;
@@ -170,19 +210,12 @@ struct ExplorerTest
                     words += L"  [" + std::to_wstring(people[a].words.size()) + L" and " + std::to_wstring(people[a + 1].words.size()) +
                              L" words, " + std::to_wstring(both.size()) + L" shared]";
                 }
-            // (a birth date only: how the dates relate - never the dates)
-            if (birth && !name)
-                for (size_t a = 0; a + 1 < people.size(); a++)
-                {
-                    const std::string &x = people[a].birth, &y = people[a + 1].birth;
-                    const wchar_t* how = x.size() != y.size() ? L"one longer" : x.substr(0, 4) == y.substr(0, 4) ? L"same year" :
-                                         x.size() >= 8 && x.substr(4) == y.substr(4) ? L"same month and day, other year" : L"other year";
-                    if (x.size() == 8 && y.size() == 8 && (x.substr(4) == "0101" || y.substr(4) == "0101")) how = L"one is January 1st";
-                    words += std::wstring(L"  [") + how + L"]";
-                }
+            std::wstring apart;
+            if (sex) apart += L"sex";
+            if (birth) apart += std::wstring(apart.empty() ? L"" : L", ") + L"year of birth";
+            if (name) apart += std::wstring(apart.empty() ? L"" : L", ") + (sex || birth ? L"name" : L"NAME ONLY (check)");
             Say(L"   shared PatientID '%s': %zu people%s, apart by %s%s\n", Widen(id).c_str(), ps.size(), hashes.c_str(),
-                birth && name ? L"name and birth date" : birth ? L"birth date only" : name ? L"NAME ONLY (the same birth date: check)" : L"nothing?",
-                words.c_str());
+                apart.empty() ? L"nothing?" : apart.c_str(), words.c_str());
         }
         if (e.data->files.empty()) return;
 

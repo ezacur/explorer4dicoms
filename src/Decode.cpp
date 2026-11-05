@@ -28,6 +28,7 @@ void InitDcmtk()
         dcmReplaceWrongDelimitationItem.set(OFTrue);
         dcmIgnoreParsingErrors.set(OFTrue);
         dcmUseExplLengthPixDataForEncTS.set(OFTrue);     // (compressed pixel data of an explicit length)
+        dcmEnableUnknownVRConversion.set(OFTrue);        // elements written as UN: read as the VR of the dictionary
     });
 }
 

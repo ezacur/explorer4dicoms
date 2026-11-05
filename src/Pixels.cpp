@@ -273,6 +273,11 @@ void Percentiles(const std::vector<const float*>& planes, int w, const RECT& box
             for (int x = box.left; x < box.right; x++, k++)
                 if (k % step == 0) v.push_back(plane[static_cast<size_t>(y) * w + x]);
     if (v.empty()) { a = 0; b = 1; return; }
+    // (the least value in 1 % of them or more is padding or background, outside the circle of a CT at
+    // -8192 or so: left out, or the window takes it in and the body comes out white)
+    const float least = *std::min_element(v.begin(), v.end());
+    const size_t padding = static_cast<size_t>(std::count(v.begin(), v.end(), least));
+    if (padding * 100 >= v.size() && padding < v.size()) v.erase(std::remove(v.begin(), v.end(), least), v.end());
     auto at = [&](double share) {
         const size_t i = static_cast<size_t>(share * (v.size() - 1) + 0.5);
         std::nth_element(v.begin(), v.begin() + i, v.end());

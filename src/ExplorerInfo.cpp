@@ -34,8 +34,9 @@ void DicomExplorer::FillInfo(int n)
     {
     case Level::Patient:
         row(L"Patient ID", Widen(g.patient, g.charset));
-        if (!node.person.empty())
-            row(L"Person", L"[" + node.person + L"]  (" + std::to_wstring(node.sharing) + L" people have this Patient ID; this hash is of the name and birth date)");
+        row(L"Person", node.who + L"  [" + node.person + L"]  (" +
+                           (node.sharing > 1 ? std::to_wstring(node.sharing) + L" people have this Patient ID; " : L"") +
+                           L"the hash is of the sex, birth date and name)");
         row(L"Studies", std::to_wstring(count(Level::Study)));
         row(L"Series", std::to_wstring(count(Level::Series)));
         break;

@@ -225,7 +225,7 @@ void DicomExplorer::Report(int n, std::wstring path)
     {
         const Gathered& g = files[nodes[p].files[0]];
         std::wstring who = g.patient.empty() ? L"Patient (no ID)" : L"Patient " + Widen(g.patient, g.charset);
-        if (!nodes[p].person.empty()) who += L" \x00B7 [" + nodes[p].person + L"]";
+        who += L" \x00B7 " + nodes[p].who + L" [" + nodes[p].person + L"]";
         if (!hideIdentity)
         {
             for (Uint32 tag : { 0x00100010u, 0x00100040u, 0x00100030u })
