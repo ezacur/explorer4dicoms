@@ -89,8 +89,22 @@ void DicomExplorer::Navigate(int n)
         if (DecodeSlice(data->files[f].path, (std::max)(0, data->files[f].frame), false, s).empty() && s.width > 0 && s.height > 0)
         {
             const RECT box = { 0, 0, s.width, s.height };
-            double lo = 0, hi = 255;
-            if (s.mono) Percentiles({ s.values.data() }, s.width, box, 0.02, 0.98, lo, hi);
+            // (as the image panel shows it: the window dragged there on a file of the node, or else the
+            // window of the header, or else the range of the pixels)
+            double lo = 0, hi = 255, center = 0, width = 0;
+            std::wstring shown;
+            bool dragged = false;
+            if (s.mono && preview && preview->DraggedWindow(shown, center, width))
+                for (int g : nodes[n].files) if (data->files[g].path == shown) { dragged = true; break; }
+            if (dragged) { lo = center - width / 2; hi = center + width / 2; }
+            else if (s.mono && s.window > 0) { lo = s.center - s.window / 2; hi = s.center + s.window / 2; }
+            else if (s.mono && !s.values.empty())
+            {
+                const auto range = std::minmax_element(s.values.begin(), s.values.end());
+                lo = *range.first;
+                hi = *range.second;
+            }
+            if (hi <= lo) hi = lo + 1;
             const int side = 512;
             const double k = (std::max)(s.width, s.height) > side ? static_cast<double>(side) / (std::max)(s.width, s.height) : 1;
             picture = Shrink(s, box, lo, hi, (std::max)(1, static_cast<int>(s.width * k)), (std::max)(1, static_cast<int>(s.height * k)));
