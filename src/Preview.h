@@ -104,6 +104,7 @@ public:
     // in Explorer, by the check box of its image bar (remembered)
     void SetSegmentsShown(bool on);
     std::function<void(bool)> running;              // the cine or the jumps started (true) or stopped
+    std::function<void()> windowed;                 // the window of the image dragged, or back to its first one
     const std::vector<DWORD>* Pixels(int& width, int& height) const;
     std::function<void(int)> moved;
     // The explorer's thumbnail of a node (0xRRGGBB pixels, its frames moving), in place of the first of

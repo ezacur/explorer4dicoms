@@ -236,6 +236,9 @@ void DicomExplorer::CreateControls()
     {
         preview->moved = [this](int i) { ShownFile(i); Live(i); Followed(i); };
         preview->running = [this](bool on) { if (!on) navigator.SetLive(-1, 0, 0, nullptr); };
+        preview->windowed = [this] {
+            if (navImageNode > 0 && navImageNode == selected && navigator.Visible()) navigator.SetPicture(NavPicture());
+        };
         preview->pointed = [this](bool on, double column, double row) { Pointed(on, column, row); };
         preview->Host(wnd, imageRect);
         Button_SetCheck(overlayBox, preview->Overlay() ? BST_CHECKED : BST_UNCHECKED);

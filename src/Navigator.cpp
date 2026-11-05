@@ -43,20 +43,7 @@ void Navigator::Set(std::vector<NavPlane> p, std::vector<char> h, int on, Pictur
     textured = on;
     caption = std::move(text);
     detail = std::move(more);
-    if (bitmap) { DeleteObject(bitmap); bitmap = nullptr; }
-    texture = std::move(picture);
-    if (textured >= 0 && texture.width > 0)
-    {
-        BITMAPINFO bi = {};
-        bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
-        bi.bmiHeader.biWidth = texture.width;
-        bi.bmiHeader.biHeight = -texture.height;
-        bi.bmiHeader.biPlanes = 1;
-        bi.bmiHeader.biBitCount = 32;
-        void* bits = nullptr;
-        bitmap = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
-        if (bitmap && bits) memcpy(bits, texture.px.data(), texture.px.size() * sizeof(DWORD));
-    }
+    Texture(std::move(picture));
     if (fit)
     {
         zoom = 1;
@@ -77,6 +64,33 @@ void Navigator::Set(std::vector<NavPlane> p, std::vector<char> h, int on, Pictur
 }
 
 void Navigator::Clear() { Set({}, {}, -1, Picture(), L"", L"", true); }
+
+// The picture on its plane, as a bitmap for PlgBlt
+void Navigator::Texture(Picture picture)
+{
+    if (bitmap) { DeleteObject(bitmap); bitmap = nullptr; }
+    texture = std::move(picture);
+    if (textured >= 0 && texture.width > 0)
+    {
+        BITMAPINFO bi = {};
+        bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
+        bi.bmiHeader.biWidth = texture.width;
+        bi.bmiHeader.biHeight = -texture.height;
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        void* bits = nullptr;
+        bitmap = CreateDIBSection(nullptr, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        if (bitmap && bits) memcpy(bits, texture.px.data(), texture.px.size() * sizeof(DWORD));
+    }
+}
+
+// Another picture on the same plane (the window of the image panel changed)
+void Navigator::SetPicture(Picture picture)
+{
+    if (textured < 0 || picture.width != texture.width || picture.height != texture.height) return;
+    Texture(std::move(picture));
+    if (wnd) InvalidateRect(wnd, nullptr, FALSE);
+}
 
 // Lines in the patient (reference lines: where the planes cut the one shown), dashed, and a point
 void Navigator::SetGuides(std::vector<std::array<float, 6>> lines)

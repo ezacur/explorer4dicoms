@@ -48,6 +48,8 @@ private:
     int navPatient = -1;                            // and the patient of the node chosen (another one: framed again)
     std::vector<int> navScene;                      // the plane of each one it draws
     std::vector<int> navSceneOf;                    // and where each plane is among them (-1: not drawn)
+    Slice navSlice;                                 // the image on its plane (one plane), drawn again as the
+    int navImageNode = -1, navWidth = 0, navHeight = 0; //  window of the image panel changes; of this node, this size
     int currentFile = -1;                           // the file the image panel shows (-1: a thumbnail, or none)
     Plot plot;                                      // an attribute along the files of the node chosen
     Uint32 plotTag = 0;                             // (which one)
@@ -267,6 +269,8 @@ private:
     void Light(int i);
 
     void Live(int i);
+
+    Picture NavPicture();
 
     void Followed(int i);
 

@@ -82,32 +82,21 @@ void DicomExplorer::Navigate(int n)
     // One plane: its image (the first one, the chosen one if an image)
     Picture picture;
     int on = -1;
+    navImageNode = -1;
+    navSlice = Slice();
     if (mine.size() == 1)
     {
         const int f = nodes[n].files[0];
         Slice s;
         if (DecodeSlice(data->files[f].path, (std::max)(0, data->files[f].frame), false, s).empty() && s.width > 0 && s.height > 0)
         {
-            const RECT box = { 0, 0, s.width, s.height };
-            // (as the image panel shows it: the window dragged there on a file of the node, or else the
-            // window of the header, or else the range of the pixels)
-            double lo = 0, hi = 255, center = 0, width = 0;
-            std::wstring shown;
-            bool dragged = false;
-            if (s.mono && preview && preview->DraggedWindow(shown, center, width))
-                for (int g : nodes[n].files) if (data->files[g].path == shown) { dragged = true; break; }
-            if (dragged) { lo = center - width / 2; hi = center + width / 2; }
-            else if (s.mono && s.window > 0) { lo = s.center - s.window / 2; hi = s.center + s.window / 2; }
-            else if (s.mono && !s.values.empty())
-            {
-                const auto range = std::minmax_element(s.values.begin(), s.values.end());
-                lo = *range.first;
-                hi = *range.second;
-            }
-            if (hi <= lo) hi = lo + 1;
             const int side = 512;
             const double k = (std::max)(s.width, s.height) > side ? static_cast<double>(side) / (std::max)(s.width, s.height) : 1;
-            picture = Shrink(s, box, lo, hi, (std::max)(1, static_cast<int>(s.width * k)), (std::max)(1, static_cast<int>(s.height * k)));
+            navSlice = std::move(s);
+            navImageNode = n;
+            navWidth = (std::max)(1, static_cast<int>(navSlice.width * k));
+            navHeight = (std::max)(1, static_cast<int>(navSlice.height * k));
+            picture = NavPicture();
             on = static_cast<int>(scene.size()) - 1;
         }
     }
@@ -540,6 +529,29 @@ void DicomExplorer::Light(int i)
 }
 
 // The cine or the jumps on an image: it, on its plane in the navigator
+// The image on the plane of the navigator as the image panel shows it: with the window dragged there on a
+// file of its node, or else with the window of its header, or else from the least of its pixels to the most
+Picture DicomExplorer::NavPicture()
+{
+    const Slice& s = navSlice;
+    if (navImageNode <= 0 || s.width <= 0 || s.height <= 0) return Picture();
+    double lo = 0, hi = 255, center = 0, width = 0;
+    std::wstring shown;
+    bool dragged = false;
+    if (s.mono && preview && preview->DraggedWindow(shown, center, width))
+        for (int g : nodes[navImageNode].files) if (data->files[g].path == shown) { dragged = true; break; }
+    if (dragged) { lo = center - width / 2; hi = center + width / 2; }
+    else if (s.mono && s.window > 0) { lo = s.center - s.window / 2; hi = s.center + s.window / 2; }
+    else if (s.mono && !s.values.empty())
+    {
+        const auto range = std::minmax_element(s.values.begin(), s.values.end());
+        lo = *range.first;
+        hi = *range.second;
+    }
+    if (hi <= lo) hi = lo + 1;
+    return Shrink(s, { 0, 0, s.width, s.height }, lo, hi, navWidth, navHeight);
+}
+
 void DicomExplorer::Live(int i)
 {
     if (!preview || !preview->Running() || !navigator.Visible() || sliderNode < 0 || i < 0 ||

@@ -22,6 +22,8 @@ public:
 
     void Clear();
 
+    void SetPicture(Picture picture);
+
     void SetGuides(std::vector<std::array<float, 6>> lines);
     void SetPoint(bool on, const double* p = nullptr);
     // Contours of RT Structure Sets, in the patient, each in its color
@@ -49,6 +51,7 @@ private:
     std::vector<char> hot;
     int textured = -1;
     Picture texture;
+    void Texture(Picture picture);
     std::wstring caption, detail;
     double center[3] = {}, radius = 1, zoom = 1, panX = 0, panY = 0;
     double azimuth = -37.5, elevation = 30;     // (degrees, view(3) of MATLAB)

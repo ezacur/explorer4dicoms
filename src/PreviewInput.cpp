@@ -14,6 +14,7 @@ void PreviewHandler::MoveWindowTo(POINT pt)
     if (im->width < 1) im->width = 1;
     windowSet = true;
     Redraw();
+    if (windowed) windowed();
 }
 
 // Screen pixels per image pixel: the fit into the image area, times the zoom
@@ -309,6 +310,7 @@ LRESULT CALLBACK PreviewHandler::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM 
                 self->zoom = 1;
                 self->KeepView();
                 self->Redraw();
+                if (self->windowed) self->windowed();
             }
         }
         return 0;
